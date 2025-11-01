@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>MoodFlix - 情緒電影引擎</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #e74c3c;
+      --dark: #2c3e50;
+      --light: #f8f9fa;
+    }
+    body { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; font-family: 'Microsoft JhengHei', sans-serif; }
+    .container { max-width: 1300px; }
+    .header { text-align: center; padding: 40px 20px; color: white; }
+    .header h1 { font-size: 2.8rem; font-weight: bold; text-shadow: 0 2px 10px rgba(0,0,0,0.3); }
+    .header p { font-size: 1.2rem; opacity: 0.9; }
+    .mood-btn { 
+      padding: 12px 24px; margin: 8px; border-radius: 50px; 
+      background: rgba(255,255,255,0.2); color: white; border: 2px solid rgba(255,255,255,0.3);
+      backdrop-filter: blur(10px); transition: all 0.3s;
+    }
+    .mood-btn:hover, .mood-btn.active { background: white; color: var(--primary); transform: translateY(-3px); box-shadow: 0 8px 20px rgba(0,0,0,0.2); }
+    .tag-group { background: white; border-radius: 16px; padding: 20px; margin: 15px 0; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+    .tag-title { font-weight: bold; color: var(--dark); margin-bottom: 12px; font-size: 1.1rem; }
+    .sub-tag { 
+      display: inline-block; padding: 6px 14px; margin: 4px; background: #f1f2f6; 
+      border-radius: 20px; font-size: 0.9rem; cursor: pointer; transition: all 0.2s;
+    }
+    .sub-tag.active { background: var(--primary); color: white; }
+    .movie-card { 
+      border: none; border-radius: 16px; overflow: hidden; 
+      box-shadow: 0 8px 25px rgba(0,0,0,0.15); transition: transform 0.3s;
+    }
+    .movie-card:hover { transform: translateY(-10px); }
+    .movie-card img { height: 320px; object-fit: cover; }
+    .movie-tags { font-size: 0.8rem; color: var(--primary); font-weight: bold; }
+    .guess-box { 
+      background: rgba(255,255,255,0.95); border-radius: 16px; padding: 20px; 
+      text-align: center; margin: 20px 0; box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    }
+    .guess-box h5 { color: var(--primary); }
+    .pagination .page-link { border: none; color: var(--dark); }
+    .pagination .page-item.active .page-link { background: var(--primary); border-color: var(--primary); }
+    @media (max-width: 768px) { .header h1 { font-size: 2rem; } .sub-tag { font-size: 0.8rem; padding: 4px 8px; } }
+  </style>
+</head>
+<body>
+
+<div class="container pt-4">
+  <!-- 標題 -->
+  <div class="header">
+    <h1>MoodFlix</h1>
+    <p>點選你的情緒與想看的故事，找到當下最對味的電影</p>
+  </div>
+
+  <!-- 猜你心情 -->
+  <div class="guess-box" id="guessBox">
+    <h5>系統偵測到你現在可能想看...</h5>
+    <p id="guessText">點擊下方開始探索</p>
+  </div>
+
+  <!-- 情緒快捷 -->
+  <div class="text-center mb-4">
+    <div class="tag-title">我現在的感覺：</div>
+    <button class="mood-btn" onclick="setMood('energized')">振奮人心</button>
+    <button class="mood-btn" onclick="setMood('touched')">淚水盈眶</button>
+    <button class="mood-btn" onclick="setMood('funny')">爆笑解壓</button>
+    <button class="mood-btn" onclick="setMood('thrilled')">心跳加速</button>
+    <button class="mood-btn" onclick="setMood('creative')">腦洞大開</button>
+    <button class="mood-btn" onclick="setMood('cozy')">溫暖治癒</button>
+  </div>
+
+  <!-- 劇情標籤群組 -->
+  <div id="tagGroups"></div>
+
+  <!-- 清除按鈕 -->
+  <div class="text-center mb-4">
+    <button class="btn btn-outline-danger" onclick="clearAll()">清除所有篩選</button>
+  </div>
+
+  <!-- 結果 -->
+  <div class="row" id="results"></div>
+
+  <!-- 分頁 -->
+  <nav id="pagination" class="mt-4"></nav>
+</div>
+
+<script>
+  const API_KEY = 'YOUR_API_KEY'; // 記得換成你的！
+  const BASE_URL = 'https://api.themoviedb.org/3';
+  const IMG_URL = 'https://image.tmdb.org/t/p/w500';
+
+  let selectedTags = [];
+  let currentPage = 1;
+  let totalPages = 1;
+
+  // 雙層標籤系統（擴充版）
+  const TAG_GROUPS = [
+    {
+      name: "超級英雄",
+      tags: [
+        { id: 101, name: "正義聯盟", mood: "熱血" },
+        { id: 102, name: "邪惡反派", mood: "黑暗" },
+        { id: 103, name: "反英雄", mood: "複雜" }
+      ]
+    },
+    {
+      name: "喜劇風格",
+      tags: [
+        { id: 201, name: "爆笑誤會", mood: "開心" },
+        { id: 202, name: "黑色幽默", mood: "諷刺" },
+        { id: 203, name: "腦洞喜劇", mood: "創意" }
+      ]
+    },
+    {
+      name: "科幻元素",
+      tags: [
+        { id: 301, name: "穿越時空", mood: "奇幻" },
+        { id: 302, name: "人工智能", mood: "哲學" },
+        { id: 303, name: "末日廢土", mood: "緊張" }
+      ]
+    },
+    {
+      name: "奇幻冒險",
+      tags: [
+        { id: 401, name: "魔法世界", mood: "夢幻" },
+        { id: 402, name: "起死回生", mood: "勵志" },
+        { id: 403, name: "動物主角", mood: "治癒" },
+        { id: 404, name: "想像無限", mood: "創意" }
+      ]
+    },
+    {
+      name: "人生旅程",
+      tags: [
+        { id: 501, name: "追夢之路", mood: "熱血" },
+        { id: 502, name: "成長蛻變", mood: "溫暖" },
+        { id: 503, name: "孤獨旅人", mood: "孤寂" },
+        { id: 504, name: "家庭和解", mood: "感動" }
+      ]
+    },
+    {
+      name: "愛情類型",
+      tags: [
+        { id: 601, name: "禁忌之戀", mood: "浪漫" },
+        { id: 602, name: "夏日戀曲", mood: "甜蜜" },
+        { id: 603, name: "復仇之路", mood: "激烈" }
+      ]
+    }
+  ];
+
+  // 電影資料庫（50部，涵蓋經典 + 近30年）
+  const MOVIES = {
+    // 料理鼠王 (2007)
+    2062: { title: "料理鼠王", year: 2007, tags: [403, 404, 501, 41] },
+    // 黑暗騎士 (2008)
+    155: { title: "黑暗騎士", year: 2008, tags: [102, 103, 302, 48] },
+    // 星際效應 (2014)
+    157336: { title: "星際效應", year: 2014, tags: [301, 303, 48, 502] },
+    // 阿甘正傳 (1994)
+    13: { title: "阿甘正傳", year: 1994, tags: [501, 502, 504, 41] },
+    // 刺激1995 (2000)
+    680: { title: "刺激1995", year: 2000, tags: [3, 37, 42, 202] },
+    // 小王子 (2015)
+    211672: { title: "小王子", year: 2015, tags: [403, 404, 502, 46] },
+    // 死侍 (2016)
+    293660: { title: "死侍", year: 2016, tags: [103, 201, 203, 44] },
+    // 你的名字 (2016)
+    372058: { title: "你的名字", year: 2016, tags: [601, 301, 42, 46] },
+    // 復仇者聯盟 (2012)
+    24428: { title: "復仇者聯盟", year: 2012, tags: [101, 16, 44] },
+    // 寄生上流 (2019)
+    496243: { title: "寄生上流", year: 2019, tags: [202, 503, 48] },
+    // 蜘蛛人：無家日 (2021)
+    315635: { title: "蜘蛛人：無家日", year: 2021, tags: [101, 103, 301] },
+    // 沙丘 (2021)
+    438148: { title: "沙丘", year: 2021, tags: [303, 401, 402] },
+    // 奧本海默 (2023)
+    872585: { title: "奧本海默", year: 2023, tags: [302, 48, 503] },
+    // 異星入境 (2016)
+    387000: { title: "異星入境", year: 2016, tags: [23, 303, 42] },
+    // 鋼鐵人 (2008)
+    1721: { title: "鋼鐵人", year: 2008, tags: [101, 16, 44] },
+    // 魔戒：王者再臨 (2003)
+    122: { title: "魔戒：王者再臨", year: 2003, tags: [401, 402, 501] },
+    // 玩具總動員 (1995)
+    862: { title: "玩具總動員", year: 1995, tags: [403, 404, 201] },
+    // 冰雪奇緣 (2013)
+    102382: { title: "冰雪奇緣", year: 2013, tags: [401, 601, 46] },
+    // 當哈利遇上莎莉 (1989, 經典)
+    14164: { title: "當哈利遇上莎莉", year: 1989, tags: [602, 201, 42] },
+    // 楚門的世界 (1998)
+    371: { title: "楚門的世界", year: 1998, tags: [203, 48, 502] },
+    // 搏擊俱樂部 (1999)
+    550: { title: "搏擊俱樂部", year: 1999, tags: [202, 503, 48] },
+    // 全面啟動 (2010)
+    27205: { title: "全面啟動", year: 2010, tags: [301, 203, 44] },
+    // 神鬼傳奇 (1999)
+    603: { title: "神鬼傳奇", year: 1999, tags: [402, 4, 401] },
+    // 哈利波特：神秘的魔法石 (2001)
+    3785: { title: "哈利波特：神秘的魔法石", year: 2001, tags: [401, 501, 17] },
+    // 獅子王 (1994)
+    778: { title: "獅子王", year: 1994, tags: [403, 502, 42] },
+    // 美女與野獸 (1991)
+    10: { title: "美女與野獸", year: 1991, tags: [601, 401, 46] },
+    // 鐵達尼號 (1997)
+    753: { title: "鐵達尼號", year: 1997, tags: [601, 42, 504] },
+    // 侏羅紀公園 (1993)
+    329: { title: "侏羅紀公園", year: 1993, tags: [23, 4, 44] },
+    // 終結者2 (1991)
+    636: { title: "終結者2：審判日", year: 1991, tags: [302, 303, 44] },
+    // 異形 (1979, 經典)
+    137: { title: "異形", year: 1979, tags: [23, 303, 47] },
+    // 星球大戰：新希望 (1977, 經典)
+    11: { title: "星球大戰：新希望", year: 1977, tags: [101, 301, 401] },
+    // 教父 (1972, 經典)
+    238: { title: "教父", year: 1972, tags: [603, 503, 48] },
+    // 低俗小說 (1994)
+    680: { title: "低俗小說", year: 1994, tags: [202, 27, 48] },
+    // 七宗罪 (1995)
+    89: { title: "七宗罪", year: 1995, tags: [102, 37, 47] },
+    // 駭客任務 (1999)
+    603: { title: "駭客任務", year: 1999, tags: [302, 301, 44] },
+    // 魔戒：雙塔奇兵 (2002)
+    70: { title: "魔戒：雙塔奇兵", year: 2002, tags: [401, 4, 501] },
+    // 哈利波特：阿茲卡班的囚徒 (2004)
+    11437: { title: "哈利波特：阿茲卡班的囚徒", year: 2004, tags: [401, 3, 37] },
+    // 納尼亞傳奇 (2005)
+    18195: { title: "納尼亞傳奇1：獅子、女巫與魔衣櫥", year: 2005, tags: [401, 402, 501] },
+    // 蜘蛛人 (2002)
+    2843: { title: "蜘蛛人", year: 2002, tags: [101, 16, 44] },
+    // 超人總匯 (2017)
+    297761: { title: "正義聯盟", year: 2017, tags: [101, 16, 44] },
+    // 黑寡婦 (2021)
+    392269: { title: "黑寡婦", year: 2021, tags: [101, 603, 44] },
+    // 尚氣 (2021)
+    566525: { title: "尚氣與十環傳奇", year: 2021, tags: [101, 33, 44] },
+    // 蟻人 (2015)
+    102299: { title: "蟻人", year: 2015, tags: [101, 203, 44] },
+    // 奇異博士 (2016)
+    284051: { title: "奇異博士", year: 2016, tags: [401, 301, 44] },
+    // 黑豹 (2018)
+    284053: { title: "黑豹", year: 2018, tags: [101, 16, 501] },
+    // 旺達幻視 (2021, TV but as movie-like)
+    460790: { title: "旺達幻視", year: 2021, tags: [103, 301, 42] },
+    // 洛基 (2021)
+    585579: { title: "洛基", year: 2021, tags: [103, 301, 48] },
+    // 鷹眼 (2021)
+    694719: { title: "鷹眼", year: 2021, tags: [101, 201, 44] },
+    // 月光下的藍色男孩 (2016)
+    340475: { title: "月光下的藍色男孩", year: 2016, tags: [601, 502, 42] },
+    // 羅馬 (2018)
+    398156: { title: "羅馬", year: 2018, tags: [503, 504, 48] },
+    // 婚姻故事 (2019)
+    513650: { title: "婚姻故事", year: 2019, tags: [601, 504, 42] },
+    // 愛爾蘭人 (2019)
+    387000: { title: "愛爾蘭人", year: 2019, tags: [603, 503, 48] }
+  };
+
+  // 初始化
+  function init() {
+    renderTagGroups();
+    guessMood();
+    setInterval(guessMood, 300000); // 每5分鐘更新
+  }
+
+  // 渲染標籤群組
+  function renderTagGroups() {
+    const container = document.getElementById('tagGroups');
+    container.innerHTML = TAG_GROUPS.map(group => `
+      <div class="tag-group">
+        <div class="tag-title">${group.name}</div>
+        ${group.tags.map(tag => `
+          <span class="sub-tag" onclick="toggleTag(${tag.id}, this)">${tag.name}</span>
+        `).join('')}
+      </div>
+    `).join('');
+  }
+
+  // 切換標籤
+  function toggleTag(id, el) {
+    const idx = selectedTags.indexOf(id);
+    if (idx === -1) selectedTags.push(id);
+    else selectedTags.splice(idx, 1);
+    el.classList.toggle('active');
+    currentPage = 1;
+    search();
+  }
+
+  // 情緒快捷
+  function setMood(mood) {
+    const moodMap = {
+      energized: [41, 101, 501],
+      touched: [42, 502, 504],
+      funny: [43, 201, 202, 203],
+      thrilled: [44, 102, 103],
+      creative: [45, 301, 404],
+      cozy: [46, 403, 602]
+    };
+    selectedTags = moodMap[mood] || [];
+    document.querySelectorAll('.sub-tag').forEach(t => t.classList.remove('active'));
+    selectedTags.forEach(id => {
+      const el = Array.from(document.querySelectorAll('.sub-tag')).find(t => t.onclick.toString().includes(`${id}`));
+      if (el) el.classList.add('active');
+    });
+    currentPage = 1;
+    search();
+  }
+
+  // 猜你心情
+  function guessMood() {
+    const hour = new Date().getHours();
+    let guess = "";
+    if (hour >= 5 && hour < 12) guess = "清晨醒腦 → 推薦「追夢之路」 (點振奮人心)";
+    else if (hour >= 12 && hour < 14) guess = "午餐時光 → 推薦「溫暖治癒」 (點溫暖治癒)";
+    else if (hour >= 18 && hour < 22) guess = "夜晚放鬆 → 推薦「腦洞大開」 (點腦洞大開)";
+    else guess = "深夜思辨 → 推薦「哲學電影」 (點穿越時空)";
+    document.getElementById('guessText').innerText = guess;
+  }
+
+  // 搜尋
+  async function search() {
+    const results = document.getElementById('results');
+    if (selectedTags.length === 0) {
+      results.innerHTML = '<div class="col-12 text-center"><p class="text-white">請選擇標籤開始探索</p></div>';
+      document.getElementById('pagination').innerHTML = '';
+      return;
+    }
+
+    results.innerHTML = '<div class="col-12 text-center"><div class="spinner-border text-light" role="status"><span class="visually-hidden">載入中...</span></div></div>';
+
+    // 篩選電影
+    let filtered = Object.entries(MOVIES).filter(([id, m]) => 
+      selectedTags.every(tag => m.tags.includes(tag))
+    ).map(([id]) => parseInt(id));
+
+    // 分頁
+    const perPage = 8;
+    const start = (currentPage - 1) * perPage;
+    const pageItems = filtered.slice(start, start + perPage);
+    totalPages = Math.ceil(filtered.length / perPage);
+
+    if (pageItems.length === 0) {
+      results.innerHTML = '<div class="col-12 text-center"><p class="text-white">找不到符合條件的電影，試試其他組合？</p></div>';
+      document.getElementById('pagination').innerHTML = '';
+      return;
+    }
+
+    // 取得 TMDB 詳細資料
+    const movieDetails = await Promise.all(
+      pageItems.map(async id => {
+        try {
+          const res = await fetch(`${BASE_URL}/movie/${id}?api_key=${API_KEY}&language=zh-TW`);
+          if (!res.ok) return null;
+          return await res.json();
+        } catch { return null; }
+      })
+    ).filter(m => m);
+
+    displayResults(movieDetails);
+    displayPagination();
+  }
+
+  function displayResults(movies) {
+    const results = document.getElementById('results');
+    if (movies.length === 0) {
+      results.innerHTML = '<div class="col-12 text-center"><p class="text-white">載入失敗，請檢查 API Key</p></div>';
+      return;
+    }
+
+    results.innerHTML = movies.map(movie => {
+      const movieData = MOVIES[movie.id];
+      const tags = (movieData?.tags || []).map(id => {
+        for (let group of TAG_GROUPS) {
+          const tag = group.tags.find(t => t.id === id);
+          if (tag) return `<span class="badge bg-danger me-1">${tag.name}</span>`;
+        }
+        return '';
+      }).join('');
+
+      const poster = movie.poster_path ? `${IMG_URL}${movie.poster_path}` : 'https://via.placeholder.com/220x320/f8f9fa/2c3e50?text=No+Image';
+      const year = movie.release_date ? movie.release_date.slice(0,4) : movieData.year;
+      return `
+        <div class="col-md-3 mb-4">
+          <div class="card movie-card h-100">
+            <img src="${poster}" class="card-img-top" alt="${movie.title}">
+            <div class="card-body d-flex flex-column">
+              <h6 class="card-title">${movie.title || movieData.title} (${year})</h6>
+              <div class="movie-tags mt-auto">${tags}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function displayPagination() {
+    const pag = document.getElementById('pagination');
+    if (totalPages <= 1) {
+      pag.innerHTML = '';
+      return;
+    }
+    let html = `<ul class="pagination justify-content-center">`;
+    for (let i = 1; i <= totalPages; i++) {
+      html += `<li class="page-item ${i === currentPage ? 'active' : ''}">
+        <a class="page-link" href="#" onclick="currentPage=${i}; search(); return false;">${i}</a>
+      </li>`;
+    }
+    html += `</ul>`;
+    pag.innerHTML = html;
+  }
+
+  function clearAll() {
+    selectedTags = [];
+    document.querySelectorAll('.sub-tag, .mood-btn').forEach(t => t.classList.remove('active'));
+    document.getElementById('results').innerHTML = '<div class="col-12 text-center"><p class="text-white">請選擇標籤開始探索</p></div>';
+    document.getElementById('pagination').innerHTML = '';
+  }
+
+  // 啟動
+  init();
+</script>
+
+</body>
+</html>
