@@ -57,7 +57,7 @@
 </div>
 
 <script>
-  const API_KEY = 'YOUR_API_KEY';
+  const API_KEY = '8cb45614494cd7f9797551b2eeb19440';
   const BASE_URL = 'https://api.themoviedb.org/3';
   const IMG_URL = 'https://image.tmdb.org/t/p/w500';
   let selectedTags = [];
